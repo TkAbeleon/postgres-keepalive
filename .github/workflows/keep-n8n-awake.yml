@@ -1,0 +1,17 @@
+name: Keep n8n awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Hugging Face n8n
+        run: |
+          curl -L --max-time 120 --retry 3 --retry-delay 10 \
+          -H "User-Agent: github-actions-keepalive" \
+          "https://rtsikynyantsa-jerymotro-pipeline.hf.space/"
