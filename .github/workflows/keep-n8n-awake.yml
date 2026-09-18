@@ -3,7 +3,7 @@ name: Keep n8n awake
 on:
   schedule:
     # GitHub Actions cron runs in UTC.
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 # Prevent two keepalive runs from overlapping.
