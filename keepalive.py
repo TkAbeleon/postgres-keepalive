@@ -2,6 +2,7 @@
 """Lightweight multi-PostgreSQL keep-alive with a real INSERT/UPDATE heartbeat."""
 
 from __future__ import annotations
+
 import os
 import re
 import sys
@@ -10,10 +11,14 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import psycopg
+from dotenv import load_dotenv
 from psycopg import sql
 
 DB_PATTERN = re.compile(r"^DB_URL_(\d+)$")
 TABLE_NAME = "keepalive_heartbeat"
+
+# Load .env when present. Existing environment variables keep precedence.
+load_dotenv(override=False)
 
 
 def load_databases() -> list[tuple[str, str]]:
@@ -75,7 +80,10 @@ def heartbeat(url: str, key: str) -> tuple[bool, str]:
                             update_count = {}.update_count + 1,
                             last_status = 'OK'
                         RETURNING last_update, update_count, last_status
-                    """).format(sql.Identifier(TABLE_NAME), sql.Identifier(TABLE_NAME)),
+                    """).format(
+                        sql.Identifier(TABLE_NAME),
+                        sql.Identifier(TABLE_NAME),
+                    ),
                     (provider, now),
                 )
                 row = cur.fetchone()
@@ -93,27 +101,48 @@ def heartbeat(url: str, key: str) -> tuple[bool, str]:
 def run_once() -> int:
     databases = load_databases()
     if not databases:
-        print("No DB_URL_N variables found.")
+        print("No DB_URL_N variables found.", file=sys.stderr)
         return 1
 
     failed = 0
     for key, url in databases:
         ok, message = heartbeat(url, key)
         print(f"[{'OK' if ok else 'ERROR'}] {key} | {message}")
-        failed += not ok
+        if not ok:
+            failed += 1
     return 1 if failed else 0
 
 
+def get_interval() -> int:
+    raw = os.getenv("INTERVAL_SECONDS", "600").strip()
+    try:
+        interval = int(raw)
+    except ValueError as exc:
+        raise ValueError("INTERVAL_SECONDS must be an integer >= 1") from exc
+    if interval < 1:
+        raise ValueError("INTERVAL_SECONDS must be >= 1")
+    return interval
+
+
 def main() -> int:
-    interval = int(os.getenv("INTERVAL_SECONDS", "600"))
-    once = os.getenv("RUN_ONCE", "false").lower() in {"1", "true", "yes"}
+    try:
+        interval = get_interval()
+    except ValueError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    once = os.getenv("RUN_ONCE", "false").strip().lower() in {"1", "true", "yes"}
 
     while True:
-        print(f"\n--- heartbeat {datetime.now().astimezone().isoformat(timespec='seconds')} ---")
-        run_once()
+        print(
+            f"\n--- heartbeat "
+            f"{datetime.now().astimezone().isoformat(timespec='seconds')} ---",
+            flush=True,
+        )
+        result = run_once()
         if once:
-            return 0
-        time.sleep(max(1, interval))
+            return result
+        time.sleep(interval)
 
 
 if __name__ == "__main__":
